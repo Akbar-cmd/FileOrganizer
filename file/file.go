@@ -3,7 +3,6 @@ package file
 import (
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,17 +44,6 @@ func NewFileOrganizer(sourceDir string) *FileOrganizer {
 	}
 
 	fo.initializeRules()
-	err := fo.initializeLogging()
-	if err != nil {
-		fmt.Println("Ошибка инициализации логгера")
-	}
-	//fo.logSuccess("organizer.log")
-	//fo.logError("organizer.log")
-	//err = fo.moveFile("D:/smort.jpg", "D:/kartinke/Images")
-	if err != nil {
-		fmt.Println("Ошибка перемещения файлов")
-	}
-
 	return fo
 }
 
@@ -81,55 +69,60 @@ func (fo *FileOrganizer) moveFile(sourcePath, targetDir string) error {
 	// 1. Извлечем расширение файла
 	extension := filepath.Ext(sourcePath)
 
-	// 1.2. Извлекаем ключевую директорию targetDir
-	_, lastDir := filepath.Split(targetDir)
-
-	// 1.3. Извлекаем наименование файла для дальнейшего перемещения
+	// 1.2. Извлекаем наименование файла для дальнейшего перемещения
 	_, nameFile := filepath.Split(sourcePath)
 
 	// 2. Сравним расширение со значениями в rulesMap
 	dir, ok := fo.rulesMap[extension]
-	// 2.1. Если сходятся - перемещаем в новую папку
-	if ok {
-		if lastDir == dir {
-			// 2.2. Создаем папку, если требуется
-			err := os.MkdirAll(targetDir, 0755)
-			if err != nil {
-				log.Fatal(err)
-			}
-			// 2.3. Создаем новый путь
-			newPath := filepath.Join(targetDir, nameFile)
-
-			// 2.4 Проверяем на конфликт имён
-			_, err = os.Stat(newPath)
-			// если имя повторяется, то err == nil
-			if err == nil {
-				timed := time.Now().Format("2006-01-02_15-04-05")
-				trimName := strings.TrimSuffix(nameFile, extension)
-				newPath = filepath.Join(targetDir, trimName+"_"+timed+extension)
-			}
-			// 2.5. Перемещаем
-			err = os.Rename(sourcePath, newPath)
-			if err != nil {
-				fmt.Println("Старый и новый путь не отличаются")
-				return err
-			}
-
-			// 2.6. Перезаписываем новое название файла (в случае, если установлен таймштамп)
-			_, nameFile = filepath.Split(newPath)
-
-			// 2.7 Логируем
-			logSuc := fmt.Sprintf("Файл " + nameFile + " перемещен в директорию " + lastDir)
-			fo.logSuccess(logSuc)
-
-			fmt.Printf("Файл " + nameFile + " перемещен в директорию " + lastDir + "\n")
-		} else {
-			logErr := fmt.Sprintf("Невозможно переместить файл " + nameFile + " - файл занят другим процессом")
-			fo.logError(logErr)
-
-			fmt.Println("Невозможно переместить данное расширение в эту директорию")
-		}
+	if !ok {
+		return nil
 	}
+
+	// Исходный файл существует
+	if _, err := os.Stat(sourcePath); err != nil {
+		errMsg := fmt.Sprintf("Исходный файл не найден: %s", sourcePath)
+		fo.logError(errMsg)
+		return err
+	}
+
+	// 2.2. Создаем папку, если требуется
+	err := os.MkdirAll(targetDir, 0755)
+	if err != nil {
+		errMsg := fmt.Sprintf("Ошибка при создании папки %s: %v\n", targetDir, err)
+		fo.logError(errMsg)
+		return err
+	}
+	// 2.3. Создаем новый путь
+	newPath := filepath.Join(targetDir, nameFile)
+
+	// 2.4 Проверяем на конфликт имён
+	_, err = os.Stat(newPath)
+	// если имя повторяется, то err == nil
+	if err == nil {
+		timed := time.Now().Format("2006-01-02_15-04-05")
+		trimName := strings.TrimSuffix(nameFile, extension)
+		newPath = filepath.Join(targetDir, trimName+"_"+timed+extension)
+	}
+
+	// 2.5 Проверяем на совпадение путей
+	if sourcePath == newPath {
+		errMsg := fmt.Sprintf("Исходный и целевой пути одинаковые: %s", sourcePath)
+		fo.logError(errMsg)
+		return fmt.Errorf("пути совпадают")
+	}
+	// 2.6. Перемещаем
+	err = os.Rename(sourcePath, newPath)
+	if err != nil {
+		fmt.Println("Старый и новый путь не отличаются")
+		return err
+	}
+
+	// 2.7. Перезаписываем новое название файла (в случае, если установлен таймштамп)
+	_, nameFile = filepath.Split(newPath)
+
+	// 2.7 Логируем
+	logSuc := fmt.Sprintf("Файл %s успешно перемещён в директорию %s", nameFile, dir)
+	fo.logSuccess(logSuc)
 
 	return nil
 }
@@ -140,8 +133,8 @@ func (fo *FileOrganizer) Organize() error {
 	// проходимся по всем папкам и файлам, начианя с исходной директории(указанной в main)
 	err := filepath.Walk(fo.sourceDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			fo.logError("Ошибка доступа:" + err.Error())
-			return nil
+			fo.logError("Ошибка доступа: %v" + err.Error())
+			return err
 		}
 
 		// проверяем папка ли это
@@ -158,17 +151,9 @@ func (fo *FileOrganizer) Organize() error {
 			// соединяем для создания целевого пути
 			targetDir := filepath.Join(fo.sourceDir, category)
 
-			// узнаем размер файла
-			fileInfo, err := os.Stat(path)
-			if err != nil {
-				fo.logError("Ошибка получения размера файла " + path + ": " + err.Error())
-				return nil
-			}
-			fileSize := fileInfo.Size()
-
+			// Перемещаем
 			err = fo.moveFile(path, targetDir)
 			if err != nil {
-				fo.logError("Ошибка при перемещении файла " + path + ": " + err.Error())
 				return nil
 			}
 
@@ -177,6 +162,8 @@ func (fo *FileOrganizer) Organize() error {
 			if !existed {
 				fo.statistics[category] = NewFileStats()
 			}
+
+			fileSize := info.Size()
 
 			// записываем данные о файле
 			fo.statistics[category].Count++

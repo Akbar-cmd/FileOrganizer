@@ -67,19 +67,24 @@ func main() {
 	fmt.Println("\nНачинаю сортировку файлов...\n")
 	fileOrganizer := file.NewFileOrganizer(sourceDir)
 
-	// 3. Запустить сортировку
-	err := fileOrganizer.Organize()
+	// 3. Инициализируем логирование
+	err := fileOrganizer.InitializeLogging()
+	if err != nil {
+		fmt.Println("Ошибка инициализации логирования:", err)
+		return
+	}
+	// Закрыть логирование
+	defer fileOrganizer.Close()
+
+	// 4. Запустить сортировку
+	err = fileOrganizer.Organize()
 	if err != nil {
 		fmt.Println("Ошибка при сортировке:", err)
 		fileOrganizer.Close()
 		return
 	}
 
-	// 4. Показать отчет
+	// 5. Показать отчет
 	fileOrganizer.PrintReport()
-
-	// 5. Закрыть логирование
-	defer fileOrganizer.Close()
-
 	fmt.Println("Сортировка завершена!")
 }
