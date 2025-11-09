@@ -80,7 +80,6 @@ func main() {
 	err = fileOrganizer.Organize()
 	if err != nil {
 		fmt.Println("Ошибка при сортировке:", err)
-		fileOrganizer.Close()
 		return
 	}
 

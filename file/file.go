@@ -3,6 +3,7 @@ package file
 import (
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ type FileOrganizer struct {
 	processedFiles int
 	// Файл для записи операций
 	logFile *os.File
+	logger  *log.Logger
 	// Хранилище для содержания статистики по типам файлов
 	statistics map[string]*FileStats
 }
@@ -35,33 +37,28 @@ func NewFileStats() *FileStats {
 }
 
 func NewFileOrganizer(sourceDir string) *FileOrganizer {
-	fo := &FileOrganizer{
-		sourceDir:      sourceDir,
-		rulesMap:       make(map[string]string),
+	return &FileOrganizer{
+		sourceDir: sourceDir,
+		rulesMap: map[string]string{
+			".wav":  "Music",
+			".mp4":  "Video",
+			".rar":  "Archives",
+			".jpg":  "Images",
+			".pdf":  "Documents",
+			".doc":  "Documents",
+			".docx": "Documents",
+			".txt":  "Documents",
+			".jpeg": "Images",
+			".png":  "Images",
+			".mp3":  "Music",
+			".avi":  "Video",
+			".zip":  "Archives",
+		},
 		processedFiles: 0,
 		logFile:        nil,
+		logger:         nil,
 		statistics:     make(map[string]*FileStats),
 	}
-
-	fo.initializeRules()
-	return fo
-}
-
-func (fo *FileOrganizer) initializeRules() {
-	fo.rulesMap[".wav"] = "Music"
-	fo.rulesMap[".mp4"] = "Video"
-	fo.rulesMap[".rar"] = "Archives"
-	fo.rulesMap[".jpg"] = "Images"
-	fo.rulesMap[".pdf"] = "Documents"
-	fo.rulesMap[".doc"] = "Documents"
-	fo.rulesMap[".docx"] = "Documents"
-	fo.rulesMap[".txt"] = "Documents"
-	fo.rulesMap[".jpeg"] = "Images"
-	fo.rulesMap[".png"] = "Images"
-	fo.rulesMap[".mp3"] = "Music"
-	fo.rulesMap[".avi"] = "Video"
-	fo.rulesMap[".zip"] = "Archives"
-
 }
 
 func (fo *FileOrganizer) moveFile(sourcePath, targetDir string) error {
@@ -113,12 +110,11 @@ func (fo *FileOrganizer) moveFile(sourcePath, targetDir string) error {
 	// 2.6. Перемещаем
 	err = os.Rename(sourcePath, newPath)
 	if err != nil {
-		fmt.Println("Старый и новый путь не отличаются")
 		return err
 	}
 
 	// 2.7. Перезаписываем новое название файла (в случае, если установлен таймштамп)
-	_, nameFile = filepath.Split(newPath)
+	nameFile = filepath.Base(newPath)
 
 	// 2.7 Логируем
 	logSuc := fmt.Sprintf("Файл %s успешно перемещён в директорию %s", nameFile, dir)
@@ -133,7 +129,7 @@ func (fo *FileOrganizer) Organize() error {
 	// проходимся по всем папкам и файлам, начианя с исходной директории(указанной в main)
 	err := filepath.Walk(fo.sourceDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			fo.logError("Ошибка доступа: %v" + err.Error())
+			fo.logError("Ошибка доступа:" + err.Error())
 			return err
 		}
 
@@ -169,8 +165,6 @@ func (fo *FileOrganizer) Organize() error {
 			fo.statistics[category].Count++
 			fo.statistics[category].TotalSize += fileSize
 			fo.processedFiles++
-
-			fo.logSuccess("Файл успешно отсортирован " + path)
 
 			return nil
 		}
